@@ -4,6 +4,7 @@
 
 #include "Utility.h"
 #include "MatrixMultiplication.h"
+#include "Conv2Helper.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -14,13 +15,21 @@
 int main(int argc, char **argv) {
 
 #ifdef MM_DYNAMIC_SIZES
-  if (argc < 4 || argc > 4) {
-    std::cerr << "Usage: ./TestSimulation N K M" << std::endl;
+  if (argc < 6 || argc > 6) {
+    std::cerr << "Usage: ./TestSimulation Conv_B Conv_N Conv_K Conv_Din Conv_Dout" << std::endl;
     return 1;
   }
-  const unsigned size_n = std::stoul(argv[1]);
-  const unsigned size_k = std::stoul(argv[2]);
-  const unsigned size_m = std::stoul(argv[3]);
+  const unsigned conv_b = std::stoul(argv[1]);
+  const unsigned conv_n = std::stoul(argv[2]);
+  const unsigned conv_k = std::stoul(argv[3]);
+  const unsigned conv_din = std::stoul(argv[4]);
+  const unsigned conv_dout = std::stoul(argv[5]);
+
+
+
+  const unsigned size_n = conv_b*conv_n*conv_k;
+  const unsigned size_k = conv_din;
+  const unsigned size_m = conv_dout;
   if (size_k % kMemoryWidthK != 0) {
     std::cerr << "K must be divisable by memory width." << std::endl;
     return 1;
@@ -47,6 +56,7 @@ int main(int argc, char **argv) {
   std::vector<Data_t> a(size_n * size_k);
   std::vector<Data_t> b(size_k * size_m);
   std::vector<Data_t> cReference(size_n * size_m, 0);
+    std::vector<Data_t> cReferenceConv2(size_n * size_m, 0);
 
   std::default_random_engine rng(kSeed);
   typename std::conditional<
@@ -65,6 +75,8 @@ int main(int argc, char **argv) {
   ReferenceImplementation(a.data(), b.data(), cReference.data(), size_n, size_k,
                           size_m);
 
+  Conv2Kernel1x1CPU<Data_t >(a.data(), b.data(), cReferenceConv2.data(), conv_b, conv_n, conv_k, conv_din, conv_dout);
+
   std::cout << "Running simulation...\n" << std::flush;
 #ifdef MM_DYNAMIC_SIZES
   MatrixMultiplicationKernel(aKernel.data(), bKernel.data(), cKernel.data(),
@@ -80,15 +92,23 @@ int main(int argc, char **argv) {
     for (unsigned j = 0; j < size_m; ++j) {
       const auto testVal = make_signed<Data_t>(cTest[i * size_m + j]);
       const auto refVal = make_signed<Data_t>(cReference[i * size_m + j]);
+      const auto refValConv2 = make_signed<Data_t>(cReferenceConv2[i * size_m + j]);
       const Data_t diff = std::abs(testVal - refVal);
+      const Data_t diff2 = std::abs(testVal - refValConv2);
       if (diff / refVal > static_cast<Data_t>(1e-3)) {
-        std::cerr << "Mismatch detected at (" << i << ", " << j
+        std::cerr << "Mismatch detected(Kernel vs. CPU MM) at (" << i << ", " << j
                   << "): " << testVal << " vs. " << refVal << "\n";
         return 1;
+      }
+      if (diff2 / refValConv2 > static_cast<Data_t>(1e-3)) {
+        std::cerr << "Mismatch detected(Kernel vs. CPU Conv2) at (" << i << ", " << j
+                  << "): " << testVal << " vs. " << refValConv2 << "\n";
+        return 2;
       }
     }
   }
   std::cout << "Matrix-matrix multiplication successfully verified.\n";
+  std::cout << "Conv2D 1x1 successfully verified.\n";
 
   return 0;
 }
